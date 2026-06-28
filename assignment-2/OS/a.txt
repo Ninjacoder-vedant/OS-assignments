@@ -1,0 +1,157 @@
+diff --git a/defs.h b/defs.h
+index 9940d26..79237f1 100644
+--- a/defs.h
++++ b/defs.h
+@@ -137,6 +137,7 @@ void            userinit(void);
+ int             wait(void);
+ void            wakeup(void*);
+ void            yield(void);
++int             settickets(int, int);
+ 
+ // swtch.S
+ void            swtch(struct context**, struct context*);
+diff --git a/proc.c b/proc.c
+index 8b10ff4..b819da1 100644
+--- a/proc.c
++++ b/proc.c
+@@ -102,7 +102,7 @@ static struct proc* allocproc(void)
+     // (if and when necessary). We need to skip that instruction and let
+     // it use our implementation.
+     p->context->lr = (uint)forkret+4;
+-
++    p->tickets = 1;
+     return p;
+ }
+ 
+@@ -214,6 +214,8 @@ int fork(void)
+     np->state = RUNNABLE;
+     safestrcpy(np->name, proc->name, sizeof(proc->name));
+ 
++    np->tickets = proc->tickets;
++
+     return pid;
+ }
+ 
+@@ -311,6 +313,12 @@ int wait(void)
+     }
+ }
+ 
++static unsigned long randstate = 1;
++int random(void) {
++  randstate = randstate * 1664525 + 1013904223;
++  return randstate;
++}
++
+ //PAGEBREAK: 42
+ // Per-CPU process scheduler.
+ // Each CPU calls scheduler() after setting itself up.
+@@ -330,11 +338,25 @@ void scheduler(void)
+         // Loop over process table looking for process to run.
+         acquire(&ptable.lock);
+ 
++        int totalTickets = 0;
++        for(p = ptable.proc; p<&ptable.proc[NPROC]; p++) {
++            if (p->state == RUNNABLE) {
++                totalTickets+=p->tickets;
++            }
++        }
++        int winner = 0;
++        if (totalTickets > 0) {
++            winner = random() % totalTickets;
++        }
+         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+             if(p->state != RUNNABLE) {
+                 continue;
+             }
+-
++            int tickets = p->tickets;
++            winner -= tickets;
++            if (winner > 0) {
++                continue;
++            }
+             // Switch to chosen process.  It is the process's job
+             // to release ptable.lock and then reacquire it
+             // before jumping back to us.
+@@ -496,6 +518,22 @@ int kill(int pid)
+     return -1;
+ }
+ 
++int settickets(int pid, int tickets) {
++    struct proc* p;
++
++    acquire(&ptable.lock);
++
++    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
++        if (p->pid == pid) {
++            p->tickets = tickets;
++            release(&ptable.lock);
++            return 0;
++        }
++    }
++    release(&ptable.lock);
++    return -1;
++}
++
+ static char *states[] = {
+             [UNUSED]    "unused",
+             [EMBRYO]    "embryo",
+diff --git a/proc.h b/proc.h
+index c56f8d0..8612e00 100644
+--- a/proc.h
++++ b/proc.h
+@@ -69,6 +69,7 @@ struct proc {
+     struct inode*   cwd;            // Current directory
+     char            name[16];       // Process name (debugging)
+     int             syscall_count;  // Count of System Calls
++    int             tickets;
+ };
+ 
+ // Process memory is laid out contiguously, low addresses first:
+diff --git a/syscall.c b/syscall.c
+index f284a1e..0bc2b4d 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -115,6 +115,7 @@ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
+ extern int sys_getpocs(void);
++extern int sys_settickets(void);
+ 
+ static int (*syscalls[])(void) = {
+         [SYS_fork]    sys_fork,
+@@ -139,6 +140,7 @@ static int (*syscalls[])(void) = {
+         [SYS_mkdir]   sys_mkdir,
+         [SYS_close]   sys_close,
+         [SYS_getprocs] sys_getprocs,
++        [SYS_settickets] sys_settickets,
+ };
+ 
+ void syscall(void)
+diff --git a/syscall.h b/syscall.h
+index cef1408..2820306 100644
+--- a/syscall.h
++++ b/syscall.h
+@@ -21,3 +21,4 @@
+ #define SYS_mkdir  20
+ #define SYS_close  21
+ #define SYS_getprocs 22
++#define SYS_settickets 23
+\ No newline at end of file
+diff --git a/sysproc.c b/sysproc.c
+index 6b2477a..7db3572 100644
+--- a/sysproc.c
++++ b/sysproc.c
+@@ -94,3 +94,12 @@ int sys_uptime(void)
+ 
+     return xticks;
+ }
++
++int sys_settickets(void)
++{
++    int pid, tickets;
++    if (argint(0, &pid) || argint(1, &tickets)) {
++        return -1;
++    }
++    return settickets(pid, tickets);
++}
+\ No newline at end of file
