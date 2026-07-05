@@ -1,12 +1,8 @@
 # Assignment 2: Lottery Scheduler & User-Space Utilities on xv6
 
 This project extends the **vanilla xv6 (ARM) operating system** with a new
-process scheduler and several user-space utilities. The headline feature is a
+process scheduler and several user-space utilities. The main feature is a
 **boosted lottery scheduler** that replaces xv6's default round-robin policy.
-
-The sections below follow the same structure as the other assignments: what
-vanilla xv6 supports, what each feature adds, where the code lives, and how it is
-tested.
 
 ---
 
